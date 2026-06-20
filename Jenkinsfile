@@ -3,54 +3,86 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME     = "tp-site-esmt"
-        CONTAINER_NAME = "tp-site-esmt-container"
-        HOST_PORT      = "8082"
+        GIT_REPO   = 'https://github.com/youssoulam/tp_site_esmt.git'
+        GIT_BRANCH  = 'main'
+        IMAGE_NAME  = 'tp-site-esmt'
+        CONTAINER   = 'site-esmt'
+        PORT        = '8082'
     }
 
     stages {
 
+        stage('Configurer Git safe.directory') {
+            steps {
+                sh 'git config --global --add safe.directory $PWD'
+            }
+        }
+
         stage('Checkout') {
             steps {
-                checkout scm
+                git credentialsId: 'github-token',
+                    url: "${GIT_REPO}",
+                    branch: "${GIT_BRANCH}"
             }
         }
 
-        stage('Injection build') {
+        stage('Vérifier Docker') {
             steps {
-                sh '''
-                sed "s/BUILD_NUMBER/${BUILD_NUMBER}/" index.html > tmp.html && mv tmp.html index.html
-                sed "s/BUILD_DATE/$(date '+%d-%m-%Y %H:%M:%S')/" index.html > tmp2.html && mv tmp2.html index.html
-                '''
+                sh 'docker version'
             }
         }
 
-        stage('Build Docker') {
+        stage('Nettoyer conteneur existant') {
             steps {
-                sh '''
-                docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:latest . || exit 1
-                '''
+                sh """
+                docker rm -f ${CONTAINER} || true
+                """
             }
         }
 
-        stage('Deploy') {
+        stage('Build image Docker') {
             steps {
-                sh '''
-                docker stop ${CONTAINER_NAME} || true
-                docker rm ${CONTAINER_NAME} || true
+                sh """
+                docker build -t ${IMAGE_NAME}:latest .
+                """
+            }
+        }
 
+        stage('Tests (optionnel)') {
+            steps {
+                sh 'echo "✅ Aucun test automatisé pour ce TP"'
+            }
+        }
+
+        stage('Déploiement local') {
+            steps {
+                sh """
                 docker run -d \
-                --name ${CONTAINER_NAME} \
-                -p ${HOST_PORT}:80 \
+                --name ${CONTAINER} \
+                -p ${PORT}:80 \
                 ${IMAGE_NAME}:latest
-                '''
+                """
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                sh """
+                sleep 3
+                curl -f http://localhost:${PORT} || exit 1
+                """
             }
         }
     }
 
     post {
+
         success {
-            echo "OK - Site deploye sur http://localhost:${HOST_PORT}"
+            echo "✅ Déploiement réussi → http://localhost:${PORT}"
+        }
+
+        failure {
+            echo "❌ Pipeline échoué"
         }
     }
 }
